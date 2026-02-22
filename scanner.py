@@ -123,17 +123,17 @@ from textual.widgets import Header, Footer, RichLog, DataTable, ProgressBar, Lab
 from textual.containers import Horizontal, Vertical, Grid
 from textual.binding import Binding
 
-# --- System Parameters & Logging ---
+
 SPEED_TEST_PATH = "/__down?bytes=1000000"
 VERIFY_URL = "http://cp.cloudflare.com/generate_204"
-CSV_FILE = "../AmirCFscanner/clean_ips.csv"
-CONFIG_FILE = "config.json"
-URI_FILE = "config.txt"
-OUTPUT_DIR = "../AmirCFscanner/output_configs"
+CSV_FILE = "./clean_ips.csv"
+CONFIG_FILE = "./config.json"
+URI_FILE = "./config.txt"
+OUTPUT_DIR = "./output_configs"
 
-# Professional Background Logger
+
 logging.basicConfig(
-    filename='../AmirCFscanner/scanner_error.log',
+    filename='./scanner_error.log',
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
