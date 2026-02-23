@@ -3,6 +3,9 @@
 __pycache__/
 
 # Output and Log files
+build/
+dist/
+*.spec
 output_configs/
 *.log
 *.csv
@@ -20,7 +23,6 @@ venv/
 env/
 
 # Android Studio Exceptions
-
 Android-App/build/
 Android-App/app/build/
 Android-App/.gradle/
