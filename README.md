@@ -32,12 +32,15 @@ No PC or Python required. The Android version features the full 4-stage pipeline
 ### 🐧 Linux (Ubuntu / Debian)
 1. **Install Python:** Open your terminal and install Python:
    ```bash
-   sudo apt update && sudo apt install python3 python3-pip
+   sudo apt update && sudo apt install python3 python3-pip wget
    ```
-2. **Clone the Project:**
+2. **Download the Engine:** (This fetches only the lightweight Python scanner, ignoring the Android source code)
    ```bash
-   git clone [https://github.com/amirrezas/WaldonCFscanner.git](https://github.com/amirrezas/WaldonCFscanner.git)
-   cd WaldonCFscanner
+   mkdir WaldonCFscanner && cd WaldonCFscanner
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/scanner.py](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/scanner.py)
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv4.txt](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv4.txt)
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv6.txt](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv6.txt)
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/cloudflare_domains.txt](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/cloudflare_domains.txt)
    ```
 3. **Run the Scanner:** (The script will automatically install missing `pip` dependencies and download the Linux Xray-core binary for you!)
    ```bash
@@ -45,11 +48,14 @@ No PC or Python required. The Android version features the full 4-stage pipeline
    ```
 
 ### 🍏 macOS
-1. **Install Python:** Run `brew install python` (requires Homebrew).
-2. **Clone and Run:**
+1. **Install Python & Wget:** Run `brew install python wget` (requires Homebrew).
+2. **Download and Run:**
    ```bash
-   git clone [https://github.com/amirrezas/WaldonCFscanner.git](https://github.com/amirrezas/WaldonCFscanner.git)
-   cd WaldonCFscanner
+   mkdir WaldonCFscanner && cd WaldonCFscanner
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/scanner.py](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/scanner.py)
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv4.txt](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv4.txt)
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv6.txt](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv6.txt)
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/cloudflare_domains.txt](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/cloudflare_domains.txt)
    python3 scanner.py
    ```
 

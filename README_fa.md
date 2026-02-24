@@ -38,23 +38,27 @@
 
 
 ### 🐧 لینوکس (`Ubuntu` / `Debian`)
+
 ۱. **نصب پایتون:** ترمینال خود را باز کرده و پایتون را نصب کنید:
 </div>
 <div dir="ltr" align="left">
 
    ```bash
-   sudo apt update && sudo apt install python3 python3-pip
+   sudo apt update && sudo apt install python3 python3-pip wget
    ```
 </div>
 <div dir="rtl" align="right">
 
-۲. **دانلود پروژه:**
+۲. **دانلود موتور اسکنر:** (این دستور فقط اسکریپت سبک پایتون را دانلود می‌کند و سورس‌کد اندروید را نادیده می‌گیرد)
 </div>
 <div dir="ltr" align="left">
 
    ```bash
-   git clone [https://github.com/amirrezas/WaldonCFscanner-python.git](https://github.com/amirrezas/WaldonCFscanner-python.git)
-   cd WaldonCFscanner-python
+   mkdir WaldonCFscanner && cd WaldonCFscanner
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/scanner.py](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/scanner.py)
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv4.txt](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv4.txt)
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv6.txt](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv6.txt)
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/cloudflare_domains.txt](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/cloudflare_domains.txt)
    ```
 </div>
 <div dir="rtl" align="right">
@@ -70,15 +74,20 @@
 <div dir="rtl" align="right">
 
 ### 🍏 مک‌اواس (`macOS`)
-۱. **نصب پایتون:** ترمینال خود را باز کرده و دستور `brew install python` را اجرا کنید (نیاز به `Homebrew` دارد).
+
+۱. **نصب پایتون:** ترمینال خود را باز کرده و دستور `brew install python wget` را اجرا کنید (نیاز به `Homebrew` دارد).
+
 
 ۲. **دانلود و اجرا:**
 </div>
 <div dir="ltr" align="left">
 
    ```bash
-   git clone [https://github.com/amirrezas/WaldonCFscanner-python.git](https://github.com/amirrezas/WaldonCFscanner-python.git)
-   cd WaldonCFscanner-python
+   mkdir WaldonCFscanner && cd WaldonCFscanner
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/scanner.py](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/scanner.py)
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv4.txt](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv4.txt)
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv6.txt](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/ipv6.txt)
+   wget [https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/cloudflare_domains.txt](https://raw.githubusercontent.com/amirrezas/WaldonCFscanner/main/cloudflare_domains.txt)
    python3 scanner.py
    ```
 </div>
