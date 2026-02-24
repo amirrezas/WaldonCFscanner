@@ -54,7 +54,7 @@ ERROR_LOG_FILE = os.path.join(BASE_DIR, "scanner_error.log")
 
 IPV4_FILE = get_resource_path("ipv4.txt")
 IPV6_FILE = get_resource_path("ipv6.txt")
-DOMAINS_FILE = get_resource_path("cloudflare_domains.txt")
+DOMAINS_FILE = get_resource_path("cloudflare-domains.txt")
 
 
 def ensure_dependencies():
