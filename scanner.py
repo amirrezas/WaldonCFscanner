@@ -6,6 +6,7 @@ import zipfile
 import platform
 import json
 import asyncio
+import urllib.parse
 
 # --- BOOT LOGS & WINDOWS ENCODING PATCH ---
 if platform.system() == 'Windows':
@@ -27,7 +28,6 @@ if platform.system() == 'Windows':
 
 print("Booting Scanner Engine... Please wait a few seconds...")
 
-# --- DYNAMIC ENVIRONMENT RESOLUTION ---
 IS_COMPILED = getattr(sys, 'frozen', False)
 
 if IS_COMPILED:
@@ -39,13 +39,10 @@ else:
 
 
 def get_resource_path(filename):
-    """Prioritize external file in the directory, fallback to bundled internal file."""
     external_path = os.path.join(BASE_DIR, filename)
-    if os.path.exists(external_path):
-        return external_path
+    if os.path.exists(external_path): return external_path
     internal_path = os.path.join(BUNDLE_DIR, filename)
-    if os.path.exists(internal_path):
-        return internal_path
+    if os.path.exists(internal_path): return internal_path
     return external_path
 
 
@@ -57,17 +54,11 @@ ERROR_LOG_FILE = os.path.join(BASE_DIR, "scanner_error.log")
 
 IPV4_FILE = get_resource_path("ipv4.txt")
 IPV6_FILE = get_resource_path("ipv6.txt")
-DOMAINS_FILE = get_resource_path("cloudflare-domains.txt")
+DOMAINS_FILE = get_resource_path("cloudflare_domains.txt")
 
 
-# --- DEPENDENCY BOOTSTRAPPER (SKIPS IF COMPILED AS EXE) ---
 def ensure_dependencies():
-    required_packages = {
-        "aiohttp": "aiohttp",
-        "textual": "textual",
-        "pyperclip": "pyperclip"
-    }
-
+    required_packages = {"aiohttp": "aiohttp", "textual": "textual", "pyperclip": "pyperclip"}
     missing_packages = []
     for module_name, pip_name in required_packages.items():
         try:
@@ -76,36 +67,28 @@ def ensure_dependencies():
             missing_packages.append(pip_name)
 
     if missing_packages:
-        print(f"📦 First-time setup detected. Installing required packages: {', '.join(missing_packages)}")
+        print(f"📦 First-time setup detected. Installing: {', '.join(missing_packages)}")
         cmd = [sys.executable, "-m", "pip", "install", "--user"]
-        if sys.platform.startswith('linux'):
-            cmd.append("--break-system-packages")
+        if sys.platform.startswith('linux'): cmd.append("--break-system-packages")
         cmd.extend(missing_packages)
-
         try:
             subprocess.check_call(cmd)
-            print("✅ Dependencies installed successfully!\n")
             os.execv(sys.executable, [sys.executable] + sys.argv)
         except subprocess.CalledProcessError:
-            print("❌ ERROR: Failed to install dependencies. Please check your internet connection.")
+            print("❌ ERROR: Failed to install dependencies.")
             sys.exit(1)
 
 
-if not IS_COMPILED:
-    ensure_dependencies()
+if not IS_COMPILED: ensure_dependencies()
 
 
-# --- XRAY BINARY RESOLUTION (RUNS IN BOTH MODES) ---
 def ensure_xray_core():
     sys_os = platform.system()
     exe_name = "xray.exe" if sys_os == "Windows" else "xray"
     xray_path = os.path.join(BASE_DIR, exe_name)
 
-    if os.path.exists(xray_path):
-        print("✅ Xray-core detected.")
-        return
-
-    print(f"🔍 Xray-core missing. Fetching the latest release for {sys_os}...")
+    if os.path.exists(xray_path): return
+    print(f"🔍 Xray-core missing. Fetching latest for {sys_os}...")
     api_url = "https://api.github.com/repos/XTLS/Xray-core/releases/latest"
 
     try:
@@ -114,43 +97,30 @@ def ensure_xray_core():
             data = json.loads(response.read().decode())
 
         asset_suffix = "windows-64.zip" if sys_os == "Windows" else "linux-64.zip"
-        download_url = None
-        for asset in data.get('assets', []):
-            if asset['name'].endswith(asset_suffix):
-                download_url = asset['browser_download_url']
-                break
+        download_url = next(
+            (a['browser_download_url'] for a in data.get('assets', []) if a['name'].endswith(asset_suffix)), None)
 
-        if not download_url:
-            print("❌ Could not find suitable Xray binary on GitHub.")
-            return
-
-        print(f"⬇️ Downloading Xray-core (approx 20MB)...")
+        if not download_url: return
         zip_path = os.path.join(BASE_DIR, "xray_temp.zip")
         urllib.request.urlretrieve(download_url, zip_path)
 
-        print("📦 Extracting executable...")
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             for member in zip_ref.namelist():
                 if member == exe_name or member.endswith(f"/{exe_name}"):
                     source = zip_ref.open(member)
-                    with open(xray_path, "wb") as target:
-                        target.write(source.read())
+                    with open(xray_path, "wb") as target: target.write(source.read())
                     break
         os.remove(zip_path)
 
         if sys_os != "Windows":
             import stat
             os.chmod(xray_path, os.stat(xray_path).st_mode | stat.S_IEXEC)
-
-        print("✅ Xray-core installed successfully!\n")
     except Exception as e:
         print(f"❌ Failed to auto-download Xray: {e}")
 
 
 ensure_xray_core()
 
-# --- EXTERNAL IMPORTS ---
-# These are safe to import now because ensure_dependencies() has guaranteed their existence.
 import aiohttp
 import ssl
 import time
@@ -161,9 +131,7 @@ import tempfile
 import logging
 import copy
 import stat
-import urllib.parse
 import pyperclip
-import re
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -171,8 +139,8 @@ from textual.widgets import Header, Footer, RichLog, DataTable, ProgressBar, Lab
 from textual.containers import Horizontal, Vertical, Grid
 from textual.binding import Binding
 
-SPEED_TEST_PATH = "/__down?bytes=1000000"
-VERIFY_URL = "http://cp.cloudflare.com/generate_204"
+if os.path.exists(ERROR_LOG_FILE):
+    os.remove(ERROR_LOG_FILE)
 
 logging.basicConfig(
     filename=ERROR_LOG_FILE,
@@ -183,38 +151,29 @@ logging.basicConfig(
 
 def get_system_socket_capacity() -> int:
     cores = os.cpu_count() or 4
-    if platform.system() == 'Windows':
-        return min(cores * 150, 1000)
-    else:
-        return min(cores * 300, 3000)
+    return min(cores * 150, 1000) if platform.system() == 'Windows' else min(cores * 300, 3000)
 
 
 class IPScannerUI(App):
-    TITLE = "High-Speed Xray VLESS Verification Engine"
+    TITLE = "High-Speed Xray VLESS/Trojan Verification Engine"
 
     CSS = """
     Screen { background: #000000; }
     #controls-container { height: auto; dock: top; padding: 1 2; background: #111111; border-bottom: solid #333333; }
-
     #header-row { height: 1; margin-bottom: 1; align: right middle; }
     #github-link { color: #00ffff; text-style: italic; }
-
     #settings-grid { grid-size: 6 1; height: 3; grid-columns: auto 12 auto 12 auto 10; align: left middle; }
-
     #clipboard-row { height: 3; margin-top: 1; align: left middle; }
     #clipboard_input { width: 1fr; margin-left: 1; background: #222222; color: #00ff00; }
     #btn_paste { margin-left: 1; min-width: 15; }
-
     #button-grid { grid-size: 6 1; height: 3; grid-columns: 1fr 1fr 1fr 1fr 1fr 1fr; margin-top: 1; grid-gutter: 1; }
     .lbl { padding-top: 1; color: #ffffff; text-style: bold; }
     .inp { width: 10; background: #222222; color: #00ff00; }
     .btn { width: 100%; }
-
     #pipelines { height: 7; margin: 1; }
     .queue-box { width: 1fr; height: 100%; border: round #444444; padding: 0 1; background: #111111; }
     .queue-title { text-style: bold; color: #ffffff; margin-bottom: 1; }
     #target-box { border: round #00ff00; }
-
     #data-area { height: 1fr; padding: 0 1; }
     #log_view { width: 40%; height: 100%; border: panel #00ff00; background: #050505; color: #ffffff; margin-right: 1; }
     #results_table { width: 60%; height: 100%; border: panel #ffff00; background: #050505; color: #ffffff; }
@@ -224,11 +183,9 @@ class IPScannerUI(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-
         with Vertical(id="controls-container"):
             with Horizontal(id="header-row"):
-                yield Label("GitHub: github.com/amirrezas/WaldonCFscanner-python", id="github-link")
-
+                yield Label("GitHub: github.com/amirrezas/WaldonCFscanner", id="github-link")
             with Grid(id="settings-grid"):
                 yield Label("Power (1-100):", classes="lbl")
                 yield Input("10", id="power_input", classes="inp")
@@ -236,12 +193,10 @@ class IPScannerUI(App):
                 yield Input("10", id="target_input", classes="inp")
                 yield Label("Debug Mode:", classes="lbl")
                 yield Switch(id="debug_switch", value=True)
-
             with Horizontal(id="clipboard-row"):
-                yield Label("VLESS URI:", classes="lbl")
-                yield Input(placeholder="Paste vless://... config here", id="clipboard_input")
+                yield Label("URI:", classes="lbl")
+                yield Input(placeholder="Paste vless:// or trojan:// here", id="clipboard_input")
                 yield Button("Paste", id="btn_paste", variant="primary")
-
             with Grid(id="button-grid"):
                 yield Button("Start", id="btn_start", variant="success", classes="btn")
                 yield Button("Pause", id="btn_pause", variant="warning", classes="btn", disabled=True)
@@ -261,7 +216,7 @@ class IPScannerUI(App):
                 yield Label("3. Speed", classes="queue-title")
                 yield ProgressBar(id="speed_bar", show_eta=False)
             with Vertical(classes="queue-box"):
-                yield Label("4. Xray", classes="queue-title")
+                yield Label("4. Xray Payload", classes="queue-title")
                 yield ProgressBar(id="xray_bar", show_eta=False)
             with Vertical(classes="queue-box", id="target-box"):
                 yield Label("Target", classes="queue-title")
@@ -276,42 +231,109 @@ class IPScannerUI(App):
     def parse_uri_to_json(self, uri: str) -> dict:
         try:
             uri = uri.strip()
-            if not uri.startswith("vless://"): return {}
-            main_part = uri[8:]
-            main_part, name = main_part.split("#", 1) if "#" in main_part else (main_part, "Generated")
-            user_part, server_part = main_part.split("@", 1)
-            server_port, query_str = server_part.split("?", 1)
-            server, port = server_port.split(":", 1)
-            qs = urllib.parse.parse_qs(query_str)
+            parsed = urllib.parse.urlparse(uri)
+            scheme = parsed.scheme.lower()
+            if scheme not in ["vless", "trojan"]: return {}
+
+            netloc = parsed.netloc
+            if "@" in netloc:
+                uuid, server_port = netloc.split("@", 1)
+            else:
+                return {}
+
+            if ":" in server_port:
+                server, port = server_port.split(":", 1)
+                port = int(port)
+            else:
+                server = server_port
+                port = 443
+
+            qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            params = {k: v[0] for k, v in qs.items()}
+
+            net = params.get("type", "tcp")
+            sec = params.get("security", "none")
+            sni = params.get("sni", "")
+            host = params.get("host", "")
+            path = params.get("path", "/")
+            fp = params.get("fp", "chrome")
+            mode = params.get("mode", "auto")
+            serviceName = params.get("serviceName", path)
+
+            if not sni: sni = host
+            if not sni: sni = server
+            if not host: host = sni
+
+            default_alpn = "http/1.1" if net == "ws" else "h2,http/1.1"
+            alpn_str = params.get("alpn", default_alpn)
+            alpn_list = [x.strip() for x in alpn_str.split(",")]
 
             config = {
-                "inbounds": [{"port": 10809, "protocol": "mixed"}],
+                "log": {"loglevel": "warning"},
+                "inbounds": [{"port": 10809, "listen": "127.0.0.1", "protocol": "mixed",
+                              "settings": {"allowTransparent": False}}],
                 "outbounds": [{
-                    "protocol": "vless",
-                    "settings": {
-                        "vnext": [{
-                            "address": server,
-                            "port": int(port),
-                            "users": [{"id": user_part, "encryption": qs.get("encryption", ["none"])[0]}]
-                        }]
-                    },
+                    "protocol": scheme,
+                    "settings": {},
                     "streamSettings": {
-                        "network": qs.get("type", ["tcp"])[0],
-                        "security": qs.get("security", ["none"])[0]
+                        "network": net,
+                        "security": sec
                     }
                 }]
             }
-            if config["outbounds"][0]["streamSettings"]["security"] == "tls":
+
+            if scheme == "vless":
+                config["outbounds"][0]["settings"] = {
+                    "vnext": [{
+                        "address": server,
+                        "port": port,
+                        "users": [{"id": uuid, "encryption": params.get("encryption", "none")}]
+                    }]
+                }
+            elif scheme == "trojan":
+                config["outbounds"][0]["settings"] = {
+                    "servers": [{
+                        "address": server,
+                        "port": port,
+                        "password": uuid
+                    }]
+                }
+
+            if sec == "tls":
                 config["outbounds"][0]["streamSettings"]["tlsSettings"] = {
-                    "serverName": qs.get("sni", [""])[0],
-                    "fingerprint": qs.get("fp", ["chrome"])[0],
-                    "alpn": qs.get("alpn", ["http/1.1"])[0].split(",")
+                    "allowInsecure": True,
+                    "serverName": sni,
+                    "fingerprint": fp,
+                    "alpn": alpn_list
                 }
-            if config["outbounds"][0]["streamSettings"]["network"] == "ws":
+
+            if net == "ws":
                 config["outbounds"][0]["streamSettings"]["wsSettings"] = {
-                    "path": qs.get("path", ["/"])[0],
-                    "headers": {"Host": qs.get("host", [""])[0]}
+                    "path": path,
+                    "headers": {"Host": host} if host else {}
                 }
+            elif net == "xhttp":
+                config["outbounds"][0]["streamSettings"]["xhttpSettings"] = {
+                    "path": path,
+                    "host": host,
+                    "mode": mode
+                }
+            elif net == "grpc":
+                config["outbounds"][0]["streamSettings"]["grpcSettings"] = {
+                    "serviceName": serviceName,
+                    "multiMode": (mode == "multi")
+                }
+            elif net == "tcp" and params.get("headerType") == "http":
+                config["outbounds"][0]["streamSettings"]["tcpSettings"] = {
+                    "header": {
+                        "type": "http",
+                        "request": {
+                            "headers": {"Host": [host]} if host else {},
+                            "path": [path]
+                        }
+                    }
+                }
+
             return config
         except Exception as e:
             logging.error(f"URI Parse Error: {e}")
@@ -320,18 +342,30 @@ class IPScannerUI(App):
     def parse_json_to_uri(self, config: dict) -> str:
         try:
             out = config["outbounds"][0]
-            if out.get("protocol") != "vless": return ""
-            vnext = out["settings"]["vnext"][0]
-            uuid = vnext["users"][0]["id"]
-            server = vnext["address"]
-            port = vnext["port"]
-            encryption = vnext["users"][0].get("encryption", "none")
+            scheme = out.get("protocol", "vless")
+
+            if scheme == "vless":
+                vnext = out["settings"]["vnext"][0]
+                uuid = vnext["users"][0]["id"]
+                server = vnext["address"]
+                port = vnext["port"]
+                encryption = vnext["users"][0].get("encryption", "none")
+                params = {"type": "tcp", "encryption": encryption}
+            elif scheme == "trojan":
+                srv = out["settings"]["servers"][0]
+                uuid = srv["password"]
+                server = srv["address"]
+                port = srv["port"]
+                params = {"type": "tcp"}
+            else:
+                return ""
 
             stream = out.get("streamSettings", {})
             net = stream.get("network", "tcp")
             sec = stream.get("security", "none")
 
-            params = {"type": net, "encryption": encryption, "security": sec}
+            params["type"] = net
+            params["security"] = sec
 
             if sec == "tls":
                 tls = stream.get("tlsSettings", {})
@@ -343,9 +377,26 @@ class IPScannerUI(App):
                 ws = stream.get("wsSettings", {})
                 if "path" in ws: params["path"] = ws["path"]
                 if "headers" in ws and "Host" in ws["headers"]: params["host"] = ws["headers"]["Host"]
+            elif net == "xhttp":
+                xhttp = stream.get("xhttpSettings", {})
+                if "path" in xhttp: params["path"] = xhttp["path"]
+                if "host" in xhttp: params["host"] = xhttp["host"]
+                if "mode" in xhttp: params["mode"] = xhttp["mode"]
+            elif net == "grpc":
+                grpc = stream.get("grpcSettings", {})
+                if "serviceName" in grpc: params["serviceName"] = grpc["serviceName"]
+                if grpc.get("multiMode"): params["mode"] = "multi"
+            elif net == "tcp":
+                tcp = stream.get("tcpSettings", {})
+                header = tcp.get("header", {})
+                if header.get("type") == "http":
+                    params["headerType"] = "http"
+                    req = header.get("request", {})
+                    if "path" in req and req["path"]: params["path"] = req["path"][0]
+                    if "headers" in req and "Host" in req["headers"]: params["host"] = req["headers"]["Host"][0]
 
             q = urllib.parse.urlencode(params, safe=":/,")
-            return f"vless://{uuid}@{server}:{port}?{q}#WaldonCFscanner"
+            return f"{scheme}://{uuid}@{server}:{port}?{q}#WaldonCFscanner"
         except Exception as e:
             logging.error(f"JSON Parse Error: {e}")
             return ""
@@ -353,8 +404,7 @@ class IPScannerUI(App):
     def on_mount(self) -> None:
         self.log_view = self.query_one("#log_view", RichLog)
         self.results_table = self.query_one("#results_table", DataTable)
-
-        self.results_table.add_columns("Rank", "IP Address", "Speed", "TLS Lat.", "Xray Lat.", "Score")
+        self.results_table.add_columns("Rank", "IP Address", "Speed", "TLS Lat.", "TTFB", "Score")
 
         self.is_scanning = False
         self.active_event = asyncio.Event()
@@ -392,7 +442,7 @@ class IPScannerUI(App):
             try:
                 with open(URI_FILE, 'r', encoding='utf-8') as f:
                     self.base_uri = f.read().strip()
-                    if self.base_uri.startswith("vless://"):
+                    if self.base_uri.startswith("vless://") or self.base_uri.startswith("trojan://"):
                         uri_loaded = True
             except Exception as e:
                 logging.error(f"Failed to load config.txt: {e}")
@@ -429,29 +479,25 @@ class IPScannerUI(App):
     def _action_paste_clipboard(self):
         try:
             val = pyperclip.paste().strip()
-            if val.startswith("vless://"):
+            if val.startswith("vless://") or val.startswith("trojan://"):
                 self.query_one("#clipboard_input", Input).value = val
-                self.log_view.write(
-                    "[bold bright_green]VLESS URI successfully pasted from clipboard![/bold bright_green]")
+                self.log_view.write("[bold bright_green]URI successfully pasted from clipboard![/bold bright_green]")
             else:
-                self.log_view.write("[bold yellow]Clipboard does not contain a valid vless:// link.[/bold yellow]")
+                self.log_view.write("[bold yellow]Clipboard does not contain a valid vless/trojan link.[/bold yellow]")
         except Exception as e:
             self.log_view.write(f"[bold red]Failed to read clipboard: {str(e)}[/bold red]")
 
     @on(Input.Changed, "#clipboard_input")
     def on_clipboard_changed(self, event: Input.Changed):
         val = event.value.strip()
-        if val.startswith("vless://"):
+        if val.startswith("vless://") or val.startswith("trojan://"):
             self.base_uri = val
             self.base_config = self.parse_uri_to_json(val)
             if self.base_config and os.path.exists(self.xray_exe):
                 if not self.xray_enabled:
                     self.xray_enabled = True
                     self.log_view.write(
-                        "[bold bright_green]VLESS configuration loaded! Xray Engine Activated.[/bold bright_green]")
-            else:
-                if not os.path.exists(self.xray_exe):
-                    self.log_view.write("[bold yellow]Valid VLESS link, but xray binary is missing![/bold yellow]")
+                        "[bold bright_green]Configuration loaded! Xray Engine Activated.[/bold bright_green]")
 
     @on(Input.Changed, "#target_input")
     def update_target(self, event: Input.Changed):
@@ -474,7 +520,7 @@ class IPScannerUI(App):
                         try:
                             net = ipaddress.ip_network(line.strip(), strict=False)
                             first_block = str(net.network_address).split('.')[0] if net.version == 4 else \
-                                str(net.network_address).split(':')[0]
+                            str(net.network_address).split(':')[0]
                             if first_block not in self.network_groups:
                                 self.network_groups[first_block] = []
                             self.network_groups[first_block].append(net)
@@ -503,27 +549,17 @@ class IPScannerUI(App):
         if net.version == 4:
             return str(net[random.randint(1, net.num_addresses - 2)])
         else:
-            net_int = int(net.network_address)
-            return str(ipaddress.IPv6Address(net_int + random.getrandbits(128 - net.prefixlen)))
+            return str(ipaddress.IPv6Address(int(net.network_address) + random.getrandbits(128 - net.prefixlen)))
 
-    def _generate_outputs(self, ip: str):
+    def _generate_outputs_smart(self, new_uri: str, config: dict, ip: str):
         try:
-            if self.base_config:
-                new_json = copy.deepcopy(self.base_config)
-                new_json.pop("routing", None)
-                new_json.pop("dns", None)
-                new_json["outbounds"][0]["settings"]["vnext"][0]["address"] = ip
+            json_path = os.path.join(OUTPUT_DIR, f"config_{ip.replace(':', '_')}.json")
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2)
 
-                json_path = os.path.join(OUTPUT_DIR, f"config_{ip.replace(':', '_')}.json")
-                with open(json_path, 'w', encoding='utf-8') as f:
-                    json.dump(new_json, f, indent=2)
-
-            if self.base_uri:
-                new_uri = re.sub(r'(vless://[^@]+@)([^:]+)(:\d+)', rf'\g<1>{ip}\g<3>', self.base_uri)
-                uri_path = os.path.join(OUTPUT_DIR, "vless_links.txt")
-                with open(uri_path, 'a', encoding='utf-8') as f:
-                    f.write(new_uri + "\n")
-
+            uri_path = os.path.join(OUTPUT_DIR, "vless_links.txt")
+            with open(uri_path, 'a', encoding='utf-8') as f:
+                f.write(new_uri + "\n")
         except Exception as e:
             logging.error(f"Failed to generate output for {ip}: {e}")
 
@@ -531,9 +567,8 @@ class IPScannerUI(App):
         self.results_table.clear()
         sorted_ips = sorted(self.found_ips, key=lambda x: x[4], reverse=True)
         for idx, (ip, speed, tls_lat, xray_lat, score) in enumerate(sorted_ips):
-            self.results_table.add_row(
-                str(idx + 1), ip, f"{speed:.2f} Mbps", f"{tls_lat:.0f} ms", f"{xray_lat:.0f} ms", f"{score:.0f}"
-            )
+            self.results_table.add_row(str(idx + 1), ip, f"{speed:.0f} KB/s", f"{tls_lat:.0f} ms", f"{xray_lat:.0f} ms",
+                                       f"{score:.0f}")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
@@ -563,18 +598,18 @@ class IPScannerUI(App):
             with open(CSV_FILE, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow(
-                    ["Rank", "IP Address", "Speed (Mbps)", "TLS Latency (ms)", "Xray Latency (ms)", "Quality Score"])
+                    ["Rank", "IP Address", "Speed (KB/s)", "TLS Latency (ms)", "TTFB (ms)", "Quality Score"])
                 sorted_ips = sorted(self.found_ips, key=lambda x: x[4], reverse=True)
                 for idx, (ip, speed, tls_lat, xray_lat, score) in enumerate(sorted_ips):
-                    writer.writerow([idx + 1, ip, f"{speed:.2f}", f"{tls_lat:.0f}", f"{xray_lat:.0f}", f"{score:.0f}"])
+                    writer.writerow([idx + 1, ip, f"{speed:.0f}", f"{tls_lat:.0f}", f"{xray_lat:.0f}", f"{score:.0f}"])
             self.log_view.write(
                 f"[bold bright_cyan]Saved & Sorted {len(self.found_ips)} IPs to {CSV_FILE}[/bold bright_cyan]")
         except Exception as e:
             logging.error(f"Failed to save CSV: {e}")
 
     def _manual_save_log(self):
-        self.log_view.write(f"[bold bright_cyan]UI Debug log and Professional Error Log saved![/bold bright_cyan]")
-        self.log_view.write(f"[gray]If frozen, please send the 'scanner_error.log' file to the developer.[/gray]")
+        self.log_view.write(f"[bold bright_cyan]Professional Error Log saved![/bold bright_cyan]")
+        self.log_view.write(f"[gray]Check 'scanner_error.log' in the folder.[/gray]")
 
     def action_start_scan(self):
         logging.info("Scan started.")
@@ -618,19 +653,16 @@ class IPScannerUI(App):
         self.results_table.clear()
 
         self.tasks = [asyncio.create_task(self.ui_updater()), asyncio.create_task(self.producer_worker())]
-
         for _ in range(num_tcp_workers): self.tasks.append(asyncio.create_task(self.phase1_tcp_worker()))
         for _ in range(num_tls_workers): self.tasks.append(asyncio.create_task(self.phase2_tls_worker()))
         for _ in range(num_speed_workers): self.tasks.append(asyncio.create_task(self.phase3_speed_worker()))
-
         if self.xray_enabled:
             for _ in range(num_xray_workers): self.tasks.append(asyncio.create_task(self.phase4_xray_worker()))
 
     def action_stop_scan(self):
         logging.info("Scan manually or automatically stopped.")
         self.stop_event.set()
-        for task in self.tasks:
-            task.cancel()
+        for task in self.tasks: task.cancel()
         self.is_scanning = False
 
         try:
@@ -686,9 +718,7 @@ class IPScannerUI(App):
                     _, writer = await asyncio.wait_for(fut, timeout=1.5)
                     writer.close()
                     await writer.wait_closed()
-
                     if debug: self.log_view.write(f"[bright_black]TCP OK:[/bright_black] {ip}")
-
                     try:
                         await asyncio.wait_for(self.tcp_queue.put(ip), timeout=1.0)
                     except asyncio.TimeoutError:
@@ -735,7 +765,6 @@ class IPScannerUI(App):
                     if b"cloudflare" in response.lower() or b"403 Forbidden" in response:
                         if debug: self.log_view.write(
                             f"[bright_magenta]TLS OK:[/bright_magenta] {ip} ({tls_latency_ms:.0f}ms)")
-
                         subnet_str = ip.rsplit('.', 1)[0] + '.0/24' if '.' in ip else ip.rsplit(':', 1)[0] + '::/48'
                         self.hot_subnets.append(ipaddress.ip_network(subnet_str, strict=False))
                         if len(self.hot_subnets) > 50: self.hot_subnets.pop(0)
@@ -774,7 +803,7 @@ class IPScannerUI(App):
                     reader, writer = await asyncio.wait_for(fut, timeout=3.0)
 
                     http_req = (
-                        f"GET {SPEED_TEST_PATH} HTTP/1.1\r\nHost: speed.cloudflare.com\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n").encode()
+                        f"GET /__down?bytes=100000 HTTP/1.1\r\nHost: speed.cloudflare.com\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n").encode()
                     writer.write(http_req)
                     await writer.drain()
 
@@ -784,36 +813,19 @@ class IPScannerUI(App):
                         if not chunk: break
                         total_bytes += len(chunk)
 
-                    duration = time.monotonic() - start_time
                     writer.close()
                     await writer.wait_closed()
 
-                    if total_bytes > 500_000:
-                        speed_mbps = (total_bytes * 8 / 1_000_000) / duration
-
+                    if total_bytes > 50000:
                         if self.xray_enabled:
                             if debug: self.log_view.write(
-                                f"[bright_cyan]SPEED OK:[/bright_cyan] {ip} ({speed_mbps:.2f} Mbps) -> Sending to Xray")
+                                f"[bright_cyan]SPEED OK:[/bright_cyan] {ip} -> Sending to Xray")
                             try:
-                                await asyncio.wait_for(self.xray_queue.put((ip, tls_latency_ms, speed_mbps)),
-                                                       timeout=1.5)
+                                await asyncio.wait_for(self.xray_queue.put((ip, tls_latency_ms)), timeout=1.5)
                             except asyncio.TimeoutError:
                                 pass
-                        else:
-                            quality_score = (speed_mbps * 1000) / max(tls_latency_ms, 1)
-                            self.log_view.write(
-                                f"[bold bright_green]WINNER![/bold bright_green] {ip} | {speed_mbps:.2f} Mbps | {tls_latency_ms:.0f} ms")
-
-                            self.found_ips.append((ip, speed_mbps, tls_latency_ms, 0, quality_score))
-                            self._generate_outputs(ip)
-                            self._refresh_table()
-
-                            if len(self.found_ips) >= self.target_ips:
-                                self.log_view.write("[bold yellow]TARGET REACHED! Auto-stopping...[/bold yellow]")
-                                self.action_stop_scan()
-
                 except Exception as e:
-                    logging.debug(f"Speed test failed for {ip}: {e}")
+                    pass
                 finally:
                     self.active_speed -= 1
                     self.tls_queue.task_done()
@@ -827,23 +839,29 @@ class IPScannerUI(App):
                 await self.active_event.wait()
                 try:
                     data = await asyncio.wait_for(self.xray_queue.get(), timeout=0.5)
-                    ip, tls_latency_ms, speed_mbps = data
+                    ip, tls_latency_ms = data
                 except asyncio.TimeoutError:
                     continue
 
                 self.active_xray += 1
                 proc = None
                 tmp_path = None
+                drain_task = None
+
                 try:
                     local_port = random.randint(20000, 50000)
                     config = copy.deepcopy(self.base_config)
 
                     config.pop("routing", None)
                     config.pop("dns", None)
-
                     config["inbounds"][0]["port"] = local_port
                     config["inbounds"][0]["protocol"] = "mixed"
-                    config["outbounds"][0]["settings"]["vnext"][0]["address"] = ip
+
+                    scheme = config["outbounds"][0]["protocol"]
+                    if scheme == "vless":
+                        config["outbounds"][0]["settings"]["vnext"][0]["address"] = ip
+                    elif scheme == "trojan":
+                        config["outbounds"][0]["settings"]["servers"][0]["address"] = ip
 
                     fd, tmp_path = tempfile.mkstemp(suffix=".json")
                     with os.fdopen(fd, 'w') as f:
@@ -851,43 +869,87 @@ class IPScannerUI(App):
 
                     proc = await asyncio.create_subprocess_exec(
                         self.xray_exe, "run", "-c", tmp_path,
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.DEVNULL
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.STDOUT
                     )
 
+                    async def drain_output():
+                        try:
+                            while True:
+                                line = await proc.stdout.readline()
+                                if not line: break
+                                text = line.decode('utf-8', errors='ignore').strip()
+                                logging.debug(f"[XRAY {ip}] {text}")
+                                if debug and "deprecated" not in text:
+                                    self.log_view.write(f"[gray]⚙️ XRAY ({ip}): {text}[/gray]")
+                        except Exception:
+                            pass
+
+                    drain_task = asyncio.create_task(drain_output())
                     await asyncio.sleep(1.5)
 
                     start_time = time.monotonic()
+
                     async with aiohttp.ClientSession() as session:
-                        async with session.get(VERIFY_URL, proxy=f"http://127.0.0.1:{local_port}", timeout=5) as resp:
-                            xray_latency_ms = (time.monotonic() - start_time) * 1000
+                        # CRITICAL FIX: Changed http:// to https://
+                        # aiohttp translates an https:// proxy request into a raw TCP CONNECT tunnel to port 443.
+                        # Serverless BPB workers often forcefully drop Port 80 HTTP proxy requests, but accept 443.
+                        async with session.get("https://speed.cloudflare.com/__down?bytes=500000",
+                                               proxy=f"http://127.0.0.1:{local_port}", timeout=10) as resp:
+                            ttfb_ms = (time.monotonic() - start_time) * 1000
 
-                            if resp.status in [200, 204]:
-                                quality_score = (speed_mbps * 1000) / max(xray_latency_ms, 1)
+                            if resp.status == 200:
+                                body = await resp.read()
+                                total_bytes = len(body)
+                                download_time = max(time.monotonic() - start_time - (ttfb_ms / 1000), 0.1)
 
-                                self.log_view.write(
-                                    f"[bold bright_green]XRAY VERIFIED![/bold bright_green] {ip} | Speed: {speed_mbps:.2f} Mbps | Xray Latency: {xray_latency_ms:.0f} ms")
+                                if total_bytes >= 100000:
+                                    speed_kbps = (total_bytes / 1024) / download_time
 
-                                self.found_ips.append((ip, speed_mbps, tls_latency_ms, xray_latency_ms, quality_score))
+                                    parsed = urllib.parse.urlparse(self.base_uri)
+                                    scheme = parsed.scheme
+                                    uuid, server_port = parsed.netloc.split("@", 1)
+                                    original_server = server_port.split(":")[0]
+                                    port = server_port.split(":")[1] if ":" in server_port else "443"
 
-                                self._generate_outputs(ip)
-                                self._refresh_table()
+                                    qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+                                    params = {k: v[0] for k, v in qs.items()}
 
-                                if len(self.found_ips) >= self.target_ips:
-                                    self.log_view.write("[bold yellow]TARGET REACHED! Auto-stopping...[/bold yellow]")
-                                    self.action_stop_scan()
+                                    if not params.get("sni"): params["sni"] = original_server
+                                    if not params.get("host"): params["host"] = params["sni"]
+                                    if not params.get("fp"): params["fp"] = "chrome"
+
+                                    new_query = urllib.parse.urlencode(params, safe=":/,")
+                                    fragment = f"#{parsed.fragment}" if parsed.fragment else "#Verified"
+                                    formatted_ip = f"[{ip}]" if ":" in ip else ip
+
+                                    new_uri = f"{scheme}://{uuid}@{formatted_ip}:{port}?{new_query}{fragment}"
+                                    quality_score = speed_kbps / max(ttfb_ms, 1)
+
+                                    self.log_view.write(
+                                        f"[bold bright_green]XRAY VERIFIED![/bold bright_green] {ip} | {speed_kbps:.0f} KB/s | TTFB: {ttfb_ms:.0f} ms")
+                                    self.found_ips.append((ip, speed_kbps, tls_latency_ms, ttfb_ms, quality_score))
+                                    self._generate_outputs_smart(new_uri, config, ip)
+                                    self._refresh_table()
+
+                                    if len(self.found_ips) >= self.target_ips:
+                                        self.log_view.write(
+                                            "[bold yellow]TARGET REACHED! Auto-stopping...[/bold yellow]")
+                                        self.action_stop_scan()
+                                else:
+                                    if debug: self.log_view.write(f"[red]Payload too small from {ip}[/red]")
                             else:
-                                if debug: self.log_view.write(
-                                    f"[red]Xray route failed for {ip} (HTTP {resp.status})[/red]")
+                                if debug: self.log_view.write(f"[red]❌ HTTP {resp.status} Error on {ip}[/red]")
 
                 except (asyncio.TimeoutError, TimeoutError):
-                    if debug: self.log_view.write(f"[gray]Xray Timeout on {ip} (Blocked or too slow)[/gray]")
-                except aiohttp.ClientError:
-                    if debug: self.log_view.write(f"[gray]Xray Connection Refused for {ip}[/gray]")
+                    if debug: self.log_view.write(f"[gray]❌ Timeout on {ip} (Too Slow/Blocked)[/gray]")
+                except aiohttp.ClientError as e:
+                    if debug: self.log_view.write(f"[gray]❌ Proxy Reject on {ip}: {str(e)}[/gray]")
                 except Exception as e:
                     logging.exception(f"Xray Critical Error on {ip}: {str(e)}")
-                    if debug: self.log_view.write(f"[red]Xray Exception on {ip}: Check error log![/red]")
+                    if debug: self.log_view.write(f"[red]❌ Critical Parse Error on {ip}: Check error log![/red]")
                 finally:
+                    if drain_task: drain_task.cancel()
                     if proc and proc.returncode is None:
                         proc.terminate()
                         try:
