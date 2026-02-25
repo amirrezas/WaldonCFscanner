@@ -1,33 +1,49 @@
-# PyCharm specific
-.idea/
-__pycache__/
+# Operating System Junk ##
+.DS_Store
+Thumbs.db
+desktop.ini
 
-# Output and Log files
-build/*
-dist/*
+# IDEs & Environments
+.idea/
+.vscode/
+venv/
+env/
+*.swp
+
+# Python & PyInstaller
+__pycache__/
+*.py[cod]
+*$py.class
+build/
+dist/
 *.spec
+
+# Android Studio & Gradle
+Android-App/build/
+Android-App/app/build/
+Android-App/.gradle/
+Android-App/.cxx/
+Android-App/local.properties
+*.jks
+*.keystore
+*.apk
+*.aab
+
+## App Specific: Logs & Outputs
+
 output_configs/
 *.log
 *.csv
 
-# Binaries and Personal Configs (DO NOT UPLOAD THESE)
-xray
-xray.exe
+
+# App Specific
 config.json
 config.txt
 vless_links.txt
-scanner_for_exec.py
+
+# App Specific
+
+xray
+xray.exe
 xray_temp.zip
-
-# Virtual Environments
-venv/
-env/
-
-# Android Studio Exceptions
-Android-App/build/
-Android-App/app/build/
-Android-App/.gradle/
-Android-App/.idea/
-Android-App/local.properties
-*.jks
-*.keystore
+scanner_for_exec.py

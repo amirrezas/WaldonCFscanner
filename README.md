@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="app_icon.svg" alt="WaldonCFscanner Logo" width="150" height="150" />
+
 # ⚡ WaldonCFscanner | Cloudflare Clean IP & Xray Verifier
 
 [![Build Status](https://github.com/amirrezas/WaldonCFscanner/actions/workflows/release.yml/badge.svg)](https://github.com/amirrezas/WaldonCFscanner/actions)

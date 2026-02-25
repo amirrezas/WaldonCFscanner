@@ -26,7 +26,7 @@ jobs:
       - name: Build EXE with PyInstaller
 
         run: |
-          pyinstaller --noconfirm --onefile --name "WaldonCFscanner" --add-data "ipv4.txt;." --add-data "ipv6.txt;." --add-data "cloudflare-domains.txt;." scanner.py
+          pyinstaller --noconfirm --onefile --windowed --icon="app_icon.ico" --name "WaldonCFscanner" --add-data "ipv4.txt;." --add-data "ipv6.txt;." --add-data "cloudflare-domains.txt;." scanner.py
 
       - name: Save EXE Artifact
         uses: actions/upload-artifact@v4
