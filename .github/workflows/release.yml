@@ -1,0 +1,90 @@
+name: Auto-Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  # building the windows
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller aiohttp textual pyperclip
+
+      - name: Build EXE with PyInstaller
+
+        run: |
+          pyinstaller --noconfirm --onefile --name "WaldonCFscanner" --add-data "ipv4.txt;." --add-data "ipv6.txt;." --add-data "cloudflare-domains.txt;." scanner.py
+
+      - name: Save EXE Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: dist/WaldonCFscanner.exe
+
+  # building apk
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Build Android APK
+        working-directory: ./Android-App
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Rename APK
+        working-directory: ./Android-App
+        # Renames the file and moves it back to the main folder
+        run: mv app/build/outputs/apk/debug/app-debug.apk ../WaldonCFscanner_Android.apk
+
+      - name: Save APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: WaldonCFscanner_Android.apk
+
+  # publish
+  publish-release:
+    needs: [build-windows, build-android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows EXE
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-exe
+
+      - name: Download Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+
+      - name: Upload Files to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            WaldonCFscanner.exe
+            WaldonCFscanner_Android.apk
+          generate_release_notes: true

@@ -44,6 +44,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var inputUri: EditText
     private lateinit var inputTargetSetup: EditText
+    private lateinit var inputCustomIps: EditText
     private lateinit var sliderPowerSetup: Slider
     private lateinit var tvPowerLabelSetup: TextView
     private lateinit var switchDebug: SwitchMaterial
@@ -89,6 +90,7 @@ class MainActivity : AppCompatActivity() {
 
         inputUri = findViewById(R.id.inputUri)
         inputTargetSetup = findViewById(R.id.inputTargetSetup)
+        inputCustomIps = findViewById(R.id.inputCustomIps)
         sliderPowerSetup = findViewById(R.id.sliderPowerSetup)
         tvPowerLabelSetup = findViewById(R.id.tvPowerLabelSetup)
         switchDebug = findViewById(R.id.switchDebug)
@@ -227,7 +229,7 @@ class MainActivity : AppCompatActivity() {
 
         val target = inputTargetSetup.text.toString().toIntOrNull() ?: 10
         val power = sliderPowerSetup.value.toInt()
-
+        val customIpsRaw = inputCustomIps.text.toString().trim()
         pbTcp.max = target * 10
         pbTls.max = target * 5
         pbSpeed.max = target * 2
@@ -238,7 +240,7 @@ class MainActivity : AppCompatActivity() {
 
         scannerScope?.launch {
             try {
-                runScannerPipeline(power, target)
+                runScannerPipeline(power, target, customIpsRaw)
             } catch (e: CancellationException) {
                 appendLog("⏹️ Workers terminated safely.")
             } catch (e: Exception) {
@@ -369,8 +371,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun runScannerPipeline(powerPercent: Int, target: Int) = coroutineScope {
-        val ips = loadIpsFromAssets()
+    private suspend fun runScannerPipeline(powerPercent: Int, target: Int, customIpsRaw: String) = coroutineScope {
+        val ips = if (customIpsRaw.isNotEmpty()) {
+            customIpsRaw.split("\n", ",").map { it.trim() }.filter { it.isNotEmpty() }
+        } else {
+            loadIpsFromAssets()
+        }
         if (ips.isEmpty()) return@coroutineScope
 
         val activeSockets = (150 * (powerPercent / 100.0)).toInt().coerceAtLeast(5)
@@ -385,9 +391,18 @@ class MainActivity : AppCompatActivity() {
         val tcpQueue = Channel<IpCandidate>(numTlsWorkers * 2)
         val xrayQueue = Channel<IpCandidate>(numXrayWorkers * 2)
 
+        val testedIps = mutableSetOf<String>()
+
         launch {
             while (isActive && isScanning) {
-                if (!isPaused) rawQueue.send(IpCandidate(generateRandomIp(ips)))
+                if (!isPaused) {
+                    val candidateIp = generateRandomIp(ips)
+                    // Only send if we haven't scanned this exact IP yet
+                    if (testedIps.add(candidateIp)) {
+                        rawQueue.send(IpCandidate(candidateIp))
+                        if (testedIps.size > 100000) testedIps.clear() // Prevent memory leak
+                    }
+                }
                 delay(20)
             }
         }
@@ -431,7 +446,44 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadIpsFromAssets(): List<String> { return try { assets.open("ipv4.txt").bufferedReader().readLines() } catch (e: Exception) { emptyList() } }
-    private fun generateRandomIp(subnets: List<String>): String { val parts = subnets.random().split("/")[0].split("."); return if (parts.size == 4) "${parts[0]}.${parts[1]}.${parts[2]}.${(1..254).random()}" else "104.16.${(0..255).random()}.${(1..254).random()}" }
+
+    private fun generateRandomIp(subnets: List<String>): String {
+        val selection = subnets.random()
+        if (!selection.contains("/")) return selection // User pasted an exact IP, leave it alone!
+
+        try {
+            val parts = selection.split("/")
+            val ipStr = parts[0]
+            val prefix = parts[1].toIntOrNull() ?: 24
+
+            val ipParts = ipStr.split(".").map { it.toLong() }
+            if (ipParts.size == 4) {
+                // Convert IP to a 32-bit integer
+                val ipInt = (ipParts[0] shl 24) or (ipParts[1] shl 16) or (ipParts[2] shl 8) or ipParts[3]
+
+
+                val mask = (-1L shl (32 - prefix)) and 0xFFFFFFFFL
+                val networkAddress = ipInt and mask
+                val broadcastAddress = (networkAddress or mask.inv()) and 0xFFFFFFFFL
+
+
+                if (broadcastAddress > networkAddress + 1) {
+                    val randomIpInt = (networkAddress + 1 until broadcastAddress).random()
+                    return "${(randomIpInt ushr 24) and 0xFF}.${(randomIpInt ushr 16) and 0xFF}.${(randomIpInt ushr 8) and 0xFF}.${randomIpInt and 0xFF}"
+                }
+            }
+        } catch (e: Exception) {
+
+        }
+
+        // Failsafe fallback: basic /24 logic
+        val fallbackParts = selection.split("/")[0].split(".")
+        return if (fallbackParts.size == 4) {
+            "${fallbackParts[0]}.${fallbackParts[1]}.${fallbackParts[2]}.${(1..254).random()}"
+        } else {
+            "104.16.${(0..255).random()}.${(1..254).random()}"
+        }
+    }
 
     private suspend fun checkTcp(candidate: IpCandidate): Boolean = withContext(scanDispatcher) {
         return@withContext try {
